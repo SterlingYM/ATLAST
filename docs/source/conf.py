@@ -35,6 +35,7 @@ author = 'Y.S.Murakami, J.Tweddle'
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',  # For Google/NumPy style docstrings
+    'sphinx.ext.viewcode',
     'nbsphinx',
 ]
 

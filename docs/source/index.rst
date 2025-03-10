@@ -12,9 +12,9 @@ Welcome to ATLAST!
 ..    :align: center
 
 
-==================
+=================================
 What is ATLAST?
-==================
+=================================
 ATLAST is an all-in-one platform to download, analyze, and visualize light curve data from ATLAS. It can do:
 
 * query ATLAS forced photometry
@@ -24,32 +24,26 @@ ATLAST is an all-in-one platform to download, analyze, and visualize light curve
 
 .. Each use case is documented in the :doc:`tutorials<rst/tutorials>` section.
 
-==================
+=================================
 When to use ATLAST?
-==================
+=================================
 TODO
 
-==================
+=================================
 What is required to use ATLAS?
-==================
+=================================
 TODO
 
 
-Indices and tables
-==================
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :hidden:
-   :caption: Tutorials
+   :caption: Welcome!
 
-   notebooks/quick_look.ipynb
+   Home <self>
 
-.. toctree::
-   :maxdepth: 1
-   :hidden:
-   :caption: API documentation
+.. include:: toc.rst
 
-   atlas.rst
 
 .. * :ref:`genindex`
 .. * :ref:`modindex`
