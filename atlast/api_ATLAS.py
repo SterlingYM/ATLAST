@@ -566,10 +566,12 @@ class AtlasPhotometry():
             
             # User to provide MW extinction values, computed using RA and Dec combined with sfdmap
             # See guidance at https://sncosmo.readthedocs.io/en/stable/models.html - 'Adding Milky Way dust'
-            if ebv is not None:
-                sncosmo_model.set(mwebv=ebv)
-            else:
-                raise ValueError('You must provide a Milky Way extinction value if you wish to model dust extinction.')
+            # if ebv is not None:
+            #TODO: discuss
+            sncosmo_model.set(mwebv=0)
+            
+            # else:
+            #     raise ValueError('You must provide a Milky Way extinction value if you wish to model dust extinction.')
         
         else:
             sncosmo_model = sncosmo.Model(source=source)
@@ -714,14 +716,15 @@ class AtlasPhotometry():
     
     def clip_outliers_sncosmo(self,sigma_minimum=3,sigma_factor=1.0,maxiter=10,verbose=True,plot=True,**kwargs):
         ''' iteratively clip sncosmo residuals.
-        Input:
+        
+        Inputs:
             sigma_minimum (float): minimum sigma level to clip. Regardless of the number of points, data within this sigma level will be retained.
             sigma_factor (float): factor to multiply the auto-estimated clip level. Don't touch unless you know what you are doing.
             maxiter (int): maximum number of iterations
             verbose (bool): print messages
             plot: plot the light curve after each iteration
             
-        Output:
+        Outputs:
             None if the fit failed at any point.
         
         '''
@@ -757,6 +760,7 @@ class AtlasPhotometry():
             
     def group_by_mjd(self,delta_mjd=1.0,filters=['o','c'],sigma_clip_level=False,min_Ndata_for_clip=4):
         ''' apply binning. Data is first split into different filters and then combined if the time difference is within delta_mjd.
+        
         Inputs:
             delta_mjd (float): maximum time difference to combine data points
             filters (list): list of filters to combine
@@ -804,6 +808,7 @@ class AtlasPhotometry():
     
     def get_zero_flux_obs(self,pkmjd,filt,phase_before=-40,phase_after=200):
         ''' get the fluxes where they are expected to be zero. Use this to correct ill-subtraction.
+        
         Inputs:
             pkmjd (float): peak MJD
             filt (str): filter to use ('o' or 'c')
@@ -828,6 +833,7 @@ class AtlasPhotometry():
     def get_zero_levels(self,pkmjd,filters=['o','c'],
                        phase_before=-40,phase_after=200):
         ''' A wrapper to get the weighted-average zero level of the light curve. This is useful for correcting ill-subtraction.
+        
         Inputs:
             filters (list): list of filters to use
         '''
