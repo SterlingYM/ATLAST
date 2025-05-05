@@ -1,7 +1,7 @@
 # ATLAST (ATLAS Transient Lightcurve Analysis and Smoothing Tools)
 An all-in-one toolkit to download, visualize, and analyze ATLAS light curves
 
-## Usage for tools in ```utils```:
+## Usage (note: docs work in progress):
 (may be useful for generating SNANA-format data files from ATLAS photometry)
 
 ### Installation
