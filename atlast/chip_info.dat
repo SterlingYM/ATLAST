@@ -1,0 +1,13 @@
+sitecam chip_nickname      mjd_min        mjd_max
+01a     acam2              57800.12362165 58715.64170035
+01a     gold               58719.35390715 59465.63979805
+01a     green+fuzzy+4x     59466.01857699 59830.64425335
+01a     magenta+wormy+5x   59830.64425335 current
+
+02a     acam1              57800.12388325 58717.64234705
+02a     red                58718.16986815 59519.65651365
+02a     red+alien+1        59522.12579875 current
+
+03a     blue+cruddy+2      59561.86449218 current
+
+04a     gold+freckles+3x   59605.03066507 current

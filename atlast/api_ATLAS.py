@@ -57,7 +57,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.table import Table
-from astropy.stats import sigma_clip
+from astropy.stats import sigma_clip, sigma_clipped_stats
+
+
 
 class QueryATLAS():
     def __init__(self,url='https://fallingstar-data.com/forcedphot',
@@ -227,6 +229,7 @@ class AtlasPhotometry():
         self.cut()
         self.warn_template_changes = warn_template_changes
         self.check_template_change(warn_template_changes)
+        self.parse_telescope_info()
         
     def check_template_change(self,warn_template_changes=True):
         ''' check if the template changes during the light curve '''
@@ -246,6 +249,21 @@ class AtlasPhotometry():
                 print(f'!!! WARNING: Data MJD range contains Template change 2 -> 3 (MJD={t23}) !!!')
             self.template_change_23 = True
         
+    def parse_telescope_info(self):
+        import importlib.resources as ir
+        filename_cyan = ir.files(__package__).joinpath("chip_info.dat")
+        df_chip = pd.read_csv(filename_cyan,sep='\s+')
+        df_chip = df_chip.replace('current',999999)
+        self._sitecam = self.df_phot['Obs'].str.slice(0, 3).values
+        
+        self._chipid = np.ones_like(self._sitecam,dtype=float)
+        for i,(sitecam,mjd) in enumerate(zip(self._sitecam,self._mjd)):
+            idx = df_chip.index.values[df_chip['sitecam'].eq(sitecam) & df_chip['mjd_min'].astype(float).le(mjd) & df_chip['mjd_max'].astype(float).ge(mjd)]
+            if len(idx) == 0:
+                idx = [np.nan]
+            self._chipid[i] = idx[0]
+        return df_chip
+                
     def _format_df_phot(self):
         ''' specific to ATLAS dataset.'''
         self.df_phot['MJD'] = self._mjd
@@ -287,7 +305,9 @@ class AtlasPhotometry():
             fluxerr_min=None,fluxerr_max=None,
             sncosmo_res_max=None,
             chi2dof_max=None,
+            flux_pull_max=None,
             filters=['o','c'],
+            chipid=None,
             s = None,
             **kwargs):
         if s is None:
@@ -318,7 +338,8 @@ class AtlasPhotometry():
             s &= self._flux_err <= fluxerr_max
         if chi2dof_max is not None:
             s &= self._chi2dof <= chi2dof_max
-            
+        if chipid is not None:
+            s &= self._chipid == chipid
         # s &= self.df_phot['F'].isin(filters)
         s &= np.isin(self._filters,filters)
     
@@ -354,21 +375,35 @@ class AtlasPhotometry():
             s &= ~s_sncosmo_res
             self.s_clipped = s_clipped
 
+        if flux_pull_max is not None:
+            if not hasattr(self,'_flux_pull'):
+                print('Flux pull has not been calculated. Run calc_nightly_flux_pull() first.')
+            else:
+                s &= np.abs(self._flux_pull) <= flux_pull_max
+                s &= self._pull_clip
+
         if hasattr(self,'_mag'):
             self.mag = self._mag[s]
             self.magerr = self._magerr[s]
+        if hasattr(self,'_flux_pull'):
+            self.flux_pull = self._flux_pull[s]
         self.mjd = self._mjd[s]
         self.filters = self._filters[s]
+        if hasattr(self,'_chi2dof'):
+            self.chi2dof = self._chi2dof[s]
         self.cuts = s        
         self.calc_flux()
         
-    def plot_lc(self,plot_interp=False):
+    def plot_lc(self,plot_interp=False,ax=None):
         if not hasattr(self,'mjd'):
             self.cut()
         
         ymin,ymax = self.flux.min(),self.flux.max()
         # plot & save
-        fig,ax = plt.subplots(1,1,figsize=(8,6))
+        if ax is None:
+            fig,ax = plt.subplots(1,1,figsize=(8,6))
+        else:
+            fig = ax.figure
         for filt,filtername in zip(['o','c'],['orange','cyan']):
             s = self.filters == filt
             ax.errorbar(self.mjd[s],self.flux[s],self.flux_err[s],
@@ -420,6 +455,24 @@ class AtlasPhotometry():
         self.flux_err = self._flux_err[self.cuts]
         if hasattr(self,'_flux_snr'):
             self.flux_snr = self._flux_snr[self.cuts]
+        
+    def subtract_flux_offset(self,flux_offset_c=0.0,flux_offset_o=0.0,
+                                flux_offset_c_err=0.0,flux_offset_o_err=0.0):
+        ''' subtract flux offset from the fluxes.'''
+        if not hasattr(self,'_flux'):
+            self.calc_flux()
+            
+        if flux_offset_c != 0.0:
+            self._flux[self._filters=='c'] -= flux_offset_c
+        if flux_offset_o != 0.0:
+            self._flux[self._filters=='o'] -= flux_offset_o
+        if flux_offset_c_err != 0.0:
+            _err = self._flux_err[self._filters=='c']
+            self._flux_err[self._filters=='c'] = np.sqrt(_err**2 + flux_offset_c_err**2)
+        if flux_offset_o_err != 0.0:
+            _err = self._flux_err[self._filters=='o']
+            self._flux_err[self._filters=='o'] = np.sqrt(_err**2 + flux_offset_o_err**2)
+        self.calc_flux()  # recalculate flux and flux_err
         
     def to_SNANA(self,outfile='',header={'SURVEY':'ATLAS'},
                  columns_to_output=['MJD','FLT', 'FIELD', 'FLUXCAL', 'FLUXCALERR']):
@@ -758,7 +811,93 @@ class AtlasPhotometry():
                 print('Suggested clip level is below the minimum. No further clipping will be done.')
                 return Nsigma
             
-    def group_by_mjd(self,delta_mjd=1.0,filters=['o','c'],sigma_clip_level=False,min_Ndata_for_clip=4):
+    def stats_grouped_by_mjd(self,delta_mjd=0.5,filters=['o','c'],clip=3):
+        ''' apply binning and get stats per exposure and stats per bin.
+        
+        Inputs:
+            delta_mjd (float): maximum time difference to combine data points
+            filters (list): list of filters to combine
+            clip (float): sigma clipping level for the pull calculation.
+
+        Returns:
+            df_all (pd.DataFrame): DataFrame containing the stats per exposure.
+        '''
+        df_all = pd.DataFrame(columns=['MJD','MJD_group','flux','flux_err','F','chi2_phot','clip_mask',
+                                       'flux_group_median','flux_group_mean','flux_group_wmean',
+                                       'flux_group_wmean_err',
+                                       'flux_group_std',
+                                       'flux_group_nMAD_median','flux_group_nMAD_mean','flux_group_nMAD_wmean',
+                                       'flux_group_n'])
+        current_cuts = self.cuts.copy()
+        for filt in filters:
+            # grab data
+            self.cut(s=current_cuts,filters=[filt])
+            mjd,flux,fluxerr,chi2dof = self.mjd, self.flux, self.flux_err, self.chi2dof
+
+            # combine flux and fluxerr if mjd is within 1 day
+            mjds_grouped = np.array_split(mjd, np.where(np.diff(mjd) > delta_mjd)[0]+1)
+            flux_grouped = np.array_split(flux, np.where(np.diff(mjd) > delta_mjd)[0]+1)
+            fluxerr_grouped = np.array_split(fluxerr, np.where(np.diff(mjd) > delta_mjd)[0]+1)
+            chi2dof_grouped = np.array_split(chi2dof, np.where(np.diff(mjd) > delta_mjd)[0]+1)
+
+            for i in range(len(mjds_grouped)):
+                mjd = mjds_grouped[i]
+                flux = flux_grouped[i]
+                fluxerr = fluxerr_grouped[i]
+                chi2dof = chi2dof_grouped[i]
+                
+                if (fluxerr<=0).sum() > 0:
+                    continue
+                w = 1/fluxerr**2
+                if ~np.isfinite(w.sum()) or w.sum()==0:
+                    continue
+                
+                # do sigma clipping in 
+                if clip is not None:
+                    pull_all, wmean, mask = sigma_clip_in_pull(flux,fluxerr,sigma_scale=clip)
+                else:
+                    mask = np.ones_like(flux, dtype=bool)
+                
+                flux_group_median = np.median(flux[mask])
+                flux_group_mean = np.mean(flux[mask])
+                flux_group_wmean = wmean#np.average(flux, weights=w)
+                flux_group_wmean_err = np.sqrt(1/np.sum(w[mask]))
+                flux_group_std = np.std(flux[mask])
+                flux_group_nMAD_median = np.median(np.abs(flux - flux_group_median))*1.4826
+                flux_group_nMAD_mean = np.median(np.abs(flux - flux_group_mean))*1.4826
+                flux_group_nMAD_wmean = np.median(np.abs(flux - flux_group_wmean))*1.4826
+                flux_group_n = len(flux)
+                mjd_combined = np.average(mjd, weights=w)
+                for i in range(len(mjd)):
+                    df_all.loc[len(df_all)] = [mjd[i],mjd_combined,flux[i],fluxerr[i],filt,chi2dof[i],mask[i],
+                                               flux_group_median,flux_group_mean,flux_group_wmean,
+                                               flux_group_wmean_err,
+                                               flux_group_std,
+                                               flux_group_nMAD_median,flux_group_nMAD_mean,flux_group_nMAD_wmean,
+                                               flux_group_n]
+            self.cut(s=current_cuts)
+        return df_all
+    
+    def calc_nightly_pull(self,delta_mjd=0.5,filters=['o','c'],pull_clip=3):
+        ''' Calculates the pull value for each data point by grouping each night's observation.
+        
+        The pull value is (flux-flux_wmean)/flux_err, where flux_wmean is the sigma-clipped weighted mean flux per night. 
+        To calculate the weighted mean flux, we use the iterative sigma-clipping in the pull space.
+        
+        Inputs:
+            pull_clip (float): sigma clipping level for the pull calculation.
+        '''
+        df_stats = self.stats_grouped_by_mjd(delta_mjd=delta_mjd,filters=filters,clip=pull_clip)
+        df_stats['flux_pull'] = (df_stats['flux'] - df_stats['flux_group_wmean']) / df_stats['flux_err']
+        
+        # update df_phot
+        self.df_phot = self.df_phot.merge(df_stats[['MJD','MJD_group','flux_group_wmean','flux_pull','clip_mask']],on='MJD',how='left')
+        self.df_phot.loc[self.df_phot['clip_mask'].isna(),'clip_mask'] = False
+        self._flux_pull = self.df_phot['flux_pull'].values
+        self._pull_clip = self.df_phot['clip_mask'].values.astype(bool)
+        
+            
+    def group_by_mjd(self,delta_mjd=0.5,filters=['o','c'],sigma_clip_level=False,min_Ndata_for_clip=4):
         ''' apply binning. Data is first split into different filters and then combined if the time difference is within delta_mjd.
         
         Inputs:
@@ -850,8 +989,10 @@ class AtlasPhotometry():
                 zero_levels[filt] = 0
                 zero_level_errors[filt] = 0
                 continue
-            zero_levels[filt] = np.average(zero_flux,weights=1/zero_flux_err**2)
-            zero_level_errors[filt] = np.sqrt(1/np.sum(1/zero_flux_err**2))
+            arr_masked = sigma_clip(zero_flux)
+            s = ~arr_masked.mask
+            zero_levels[filt] = np.average(zero_flux[s],weights=1/zero_flux_err[s]**2)
+            zero_level_errors[filt] = np.sqrt(1/np.sum(1/zero_flux_err[s]**2))
         return zero_levels,zero_level_errors
         
     def add_error_quadrature(self,percent_flux=5):
@@ -895,7 +1036,7 @@ class AtlasBinnedPhotometry(AtlasPhotometry):
 
 from scipy.stats import norm
 
-def init_sncosmo_filters():
+def init_sncosmo_filters(force=True):
     import sncosmo
     import importlib.resources as ir
     print('Adding ATLAS filters to SNCosmo...',end='')
@@ -903,8 +1044,8 @@ def init_sncosmo_filters():
     filename_orange = ir.files(__package__).joinpath("ATLAS_orange.dat")
     cyan_wav,cyan_filt = np.loadtxt(filename_cyan,unpack=True)
     orange_wav,orange_filt = np.loadtxt(filename_orange,unpack=True)
-    sncosmo.register(sncosmo.Bandpass(orange_wav, orange_filt, name='o'))
-    sncosmo.register(sncosmo.Bandpass(cyan_wav, cyan_filt, name='c'))
+    sncosmo.register(sncosmo.Bandpass(orange_wav, orange_filt, name='o'),force=force)
+    sncosmo.register(sncosmo.Bandpass(cyan_wav, cyan_filt, name='c'),force=force)
     print(' Done')
 
 def chauvenet_sigma_level(N):
@@ -916,3 +1057,33 @@ def chauvenet_sigma_level(N):
     sigma_level = norm.ppf(1 - threshold_prob)
     
     return sigma_level
+
+def sigma_clip_in_pull(flux,flux_err,sigma_scale=3):
+    """
+    sigma_clip_in_pull: sigma-clip the flux in pull space in a iterative process
+    """
+    indices = np.arange(len(flux))
+    mask = np.isfinite(flux) & np.isfinite(flux_err)
+    if mask.sum() < 1:
+        return np.nan,np.nan,np.nan
+    mean = np.average(flux[mask],weights=1/flux_err[mask]**2)
+    pull = (flux-mean)/flux_err
+
+    for _ in range(mask.sum()-2):
+        # try removing data with the largest pull
+        s = mask.copy()
+        s[np.where(pull == pull[mask].max())[0][0]] = False
+        mean = np.average(flux[s],weights=1/flux_err[s]**2)
+        pull = (flux - mean) / flux_err
+        
+        # apply sigma-clip with new pull and std
+        # see if it changes the clip result
+        new_mask = np.abs(pull) < max(1,np.std(pull[s]))*sigma_scale
+        if new_mask.sum() == mask.sum():
+            break
+        mask = new_mask
+
+    mean = np.average(flux[mask],weights=1/flux_err[mask]**2)
+    pull_all = (flux - mean)/flux_err
+    
+    return pull_all, mean, mask
