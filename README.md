@@ -58,3 +58,37 @@ headers = {
     'FILTERS': 'co'
 }
 phot.to_SNANA('output_file.txt',header=headers)
+~~~
+
+
+NOTE: light curve fitting requires some setup.
+1. (required) add ATLAS filters to sncosmo:
+~~~python
+from atlas_tools import init_sncosmo_filters
+init_sncosmo_filters()
+~~~
+
+2. (optional) Select the model to fit. The default is 'salt2'. You can also specify here if you want to correct for Milky Way extinction with the ```correct_mwdust``` flag, select from the available dust models (```F99, CCM89, OD94```) using the ```dust``` flag, and provide a predetermined E(B-V) using the ```ebv``` flag. For guidance on how to compute E(B-V) for SNCosmo, see https://sncosmo.readthedocs.io/en/stable/models.html - 'Adding Milky Way dust'.
+~~~python
+phot._prep_sncosmo_model(source='hsiao',params_to_fit=['z', 't0', 'amplitude'])
+
+# if sources other than 'salt2' are used, the bounds should be adjusted.
+phot.plot_lc(bounds=dict_of_tuples)
+~~~
+
+3. (optional) set preset (fixed) values. For example, if the redshift, milky-way dust E(B-V), and peak MJD are known:
+~~~python
+phot.fit_lc(
+    preset_vals={
+        'mwebv':mwebv,
+        'z':redshift,
+        't0':pkmjd,
+        },
+    model_source='salt2',
+    correct_mwdust=True,
+    raise_error=True,
+    plot=True
+    )
+
+~~~
+It is also possible to perform an initial fit to determine first-pass values for the fitted parameters and then a second iteration of the fit using these values as priors, using the ```iterate_fit``` flag.
