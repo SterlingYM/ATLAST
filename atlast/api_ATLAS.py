@@ -391,6 +391,8 @@ class AtlasPhotometry():
         self.filters = self._filters[s]
         if hasattr(self,'_chi2dof'):
             self.chi2dof = self._chi2dof[s]
+        if hasattr(self,'_chipid'):
+            self.chipid = self._chipid[s]
         self.cuts = s        
         self.calc_flux()
         
