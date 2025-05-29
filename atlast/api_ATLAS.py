@@ -225,11 +225,11 @@ class AtlasPhotometry():
         self._fluxerr_ATLAS = self.df_phot['duJy'].values
         self._chi2dof = self.df_phot['chi/N'].values
         self.cuts = np.ones(len(self._mag),dtype=bool)
+        self.parse_telescope_info()
         self.calc_flux()
         self.cut()
         self.warn_template_changes = warn_template_changes
         self.check_template_change(warn_template_changes)
-        self.parse_telescope_info()
         
     def check_template_change(self,warn_template_changes=True):
         ''' check if the template changes during the light curve '''
