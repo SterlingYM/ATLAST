@@ -262,7 +262,7 @@ class AtlasPhotometry():
             if len(idx) == 0:
                 idx = [np.nan]
             self._chipid[i] = idx[0]
-        return df_chip
+        self.df_chip = df_chip
                 
     def _format_df_phot(self):
         ''' specific to ATLAS dataset.'''
