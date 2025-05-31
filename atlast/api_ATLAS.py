@@ -893,7 +893,19 @@ class AtlasPhotometry():
         df_stats['flux_pull'] = (df_stats['flux'] - df_stats['flux_group_wmean']) / df_stats['flux_err']
         
         # update df_phot
-        self.df_phot = self.df_phot.merge(df_stats[['MJD','MJD_group','flux_group_wmean','flux_pull','clip_mask']],on='MJD',how='left')
+        new_cols = ['MJD','MJD_group','flux_group_wmean','flux_pull','clip_mask']
+        for new_col in new_cols:
+            if new_col not in self.df_phot.columns:
+                self.df_phot[new_col] = np.nan
+                
+        # Set index to the key column
+        self.df_phot.set_index("MJD", inplace=True)
+        df_stats.set_index("MJD", inplace=True)
+
+        # Perform update on common columns
+        self.df_phot.update(df_stats[new_cols[1:]])
+        self.df_phot.reset_index(inplace=True)
+        
         self.df_phot.loc[self.df_phot['clip_mask'].isna(),'clip_mask'] = False
         self._flux_pull = self.df_phot['flux_pull'].values
         self._pull_clip = self.df_phot['clip_mask'].values.astype(bool)
