@@ -214,7 +214,7 @@ class AtlasPhotometry():
 
         # read photometry
         self.df_phot = pd.read_csv(phot_file,
-                                   sep='\s+',#delim_whitespace=True,
+                                   sep=r'\s+',#delim_whitespace=True,
                                    escapechar='#')
         self.df_phot.columns=self.df_phot.columns.str.replace('#','') # some files have '###' in the header
         self._mag = self.df_phot['m'].values
@@ -252,7 +252,7 @@ class AtlasPhotometry():
     def parse_telescope_info(self):
         import importlib.resources as ir
         filename_cyan = ir.files(__package__).joinpath("chip_info.dat")
-        df_chip = pd.read_csv(filename_cyan,sep='\s+')
+        df_chip = pd.read_csv(filename_cyan,sep=r'\s+')
         df_chip = df_chip.replace('current',999999)
         self._sitecam = self.df_phot['Obs'].str.slice(0, 3).values
         
@@ -896,7 +896,11 @@ class AtlasPhotometry():
         new_cols = ['MJD','MJD_group','flux_group_wmean','flux_pull','clip_mask']
         for new_col in new_cols:
             if new_col not in self.df_phot.columns:
-                self.df_phot[new_col] = np.nan
+                if new_col == 'clip_mask':
+                    # clip_mask is a boolean column
+                    self.df_phot[new_col] = False
+                else:
+                    self.df_phot[new_col] = np.nan
                 
         # Set index to the key column
         self.df_phot.set_index("MJD", inplace=True)
