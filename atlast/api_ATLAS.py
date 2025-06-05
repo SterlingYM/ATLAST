@@ -1052,6 +1052,7 @@ class AtlasBinnedPhotometry(AtlasPhotometry):
         return zero_levels,zero_level_errors
         
 
+
 from scipy.stats import norm
 
 def init_sncosmo_filters(force=True):
@@ -1105,3 +1106,4 @@ def sigma_clip_in_pull(flux,flux_err,sigma_scale=3):
     pull_all = (flux - mean)/flux_err
     
     return pull_all, mean, mask
+

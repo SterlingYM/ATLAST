@@ -1,6 +1,8 @@
 import pandas as pd
+import numpy as np
 from .api_ATLAS import AtlasPhotometry
-
+from astropy.io import fits
+from astropy.table import Table
 def _parse_metadata_line(line):
     # remove comments
     line = line.split('#')[0]
@@ -50,7 +52,7 @@ def read_SNANA_data(path):
 class SNANAPhotometry(AtlasPhotometry):
     def __init__(self,path=None,objname='',zp=27.5,df_phot=None):
         if df_phot is not None:
-            self.df_phot = df_phot
+            self.df_phot = df_phot.copy()
         else:
             self.df_phot = read_SNANA_data(path)
         self.metadata = self.df_phot.attrs
@@ -60,11 +62,38 @@ class SNANAPhotometry(AtlasPhotometry):
         self.objname = objname
         self.zp = zp
         
-        _filters = self.df_phot['FLT']
-        _filters = _filters.apply(lambda x: x.rsplit('/')[-1])
+        if 'FLT' not in self.df_phot.columns:
+            _filters = self.df_phot['BAND']
+        else:
+            _filters = self.df_phot['FLT']
+            _filters = _filters.apply(lambda x: x.rsplit('/')[-1])
         self._filters = _filters.values.astype(str)
+        self._chi2dof = np.ones_like(self._mjd) * 0
         self.cut()
 
     def _format_df_phot(self):
         pass
     
+    def match_obs(self, phot_obs):
+        s = self._mjd == phot_obs._mjd
+        self.cut(s=s)
+    
+    
+# class SnanaSimPhotometry(AtlasPhotometry):
+#     def __init__(self, df_phot,objname='',zp=27.5)
+
+def read_from_sim(simid,head_file,phot_file,objname=None):
+    if objname is None:
+        objname = f'SIM {simid}'
+    
+    hdul_head = fits.open(head_file)
+    hdul_phot = fits.open(phot_file)
+    df_header = Table(hdul_head['Header'].data).to_pandas()
+    df_photometry = Table(hdul_phot['Photometry'].data).to_pandas()
+
+    ptrobs_min,ptrobs_max = df_header.loc[df_header['SNID'].str.strip().astype(int).eq(simid),['PTROBS_MIN','PTROBS_MAX']].values.T
+    df_phot = df_photometry.loc[np.arange(ptrobs_min-1,ptrobs_max,1)]
+    df_phot['FLT'] = df_phot['BAND'].str.strip().apply(lambda x: x[-1])
+    df_phot = df_phot[~df_phot['MJD'].duplicated(keep='last')]
+
+    return SNANAPhotometry(objname=objname,df_phot=df_phot.copy())
