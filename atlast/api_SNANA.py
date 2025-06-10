@@ -103,3 +103,26 @@ class SNANASim():
         df_phot = df_phot[~df_phot['MJD'].duplicated(keep='last')]
 
         return SNANAPhotometry(objname=objname,df_phot=df_phot.copy())
+
+
+class SNANAData():
+    def __init__(self,head_file,phot_file):
+        self.head_file = head_file
+        self.phot_file = phot_file
+        hdul_head = fits.open(head_file)
+        hdul_phot = fits.open(phot_file)
+        df_header = Table(hdul_head['Header'].data).to_pandas()
+        df_photometry = Table(hdul_phot['Photometry'].data).to_pandas()
+        self.df_header = df_header
+        self.df_photometry = df_photometry
+        
+    def get(self,simid,objname=None):
+        if objname is None:
+            objname = f'SIM {simid}'
+
+        ptrobs_min,ptrobs_max = self.df_header.loc[self.df_header['SNID'].str.strip().eq(simid),['PTROBS_MIN','PTROBS_MAX']].values.T
+        df_phot = self.df_photometry.loc[np.arange(ptrobs_min-1,ptrobs_max,1)]
+        df_phot['FLT'] = df_phot['BAND'].str.strip().apply(lambda x: x[-1])
+        df_phot = df_phot[~df_phot['MJD'].duplicated(keep='last')]
+
+        return SNANAPhotometry(objname=objname,df_phot=df_phot.copy())
