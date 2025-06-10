@@ -115,6 +115,7 @@ class SNANAData():
         df_photometry = Table(hdul_phot['Photometry'].data).to_pandas()
         self.df_header = df_header
         self.df_photometry = df_photometry
+        self.unique_ids = df_header['SNID'].str.strip().unique()
         
     def get(self,simid,objname=None):
         if objname is None:
