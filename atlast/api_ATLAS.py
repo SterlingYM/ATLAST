@@ -59,6 +59,10 @@ import numpy as np
 from astropy.table import Table
 from astropy.stats import sigma_clip, sigma_clipped_stats
 
+import importlib.resources as ir
+filename_cyan = ir.files(__package__).joinpath("chip_info.dat")
+df_chip = pd.read_csv(filename_cyan,sep=r'\s+')
+df_chip = df_chip.replace('current',999999)
 
 
 class QueryATLAS():
@@ -74,8 +78,11 @@ class QueryATLAS():
             
     def handle_throttle(self, response, waittime_default=10):
         ''' predict the waittime based on throttling message '''
-        message = resp.json()["detail"]
-        print(f'{resp.status_code} {message}')
+        try:
+            message = response.json()["detail"]
+            print(f'{resp.status_code} {message}')
+        except Exception:
+            print(response.json())
         t_sec = re.findall(r'available in (\d+) seconds', message)
         t_min = re.findall(r'available in (\d+) minutes', message)
         if t_sec:
@@ -396,7 +403,7 @@ class AtlasPhotometry():
         self.cuts = s        
         self.calc_flux()
         
-    def plot_lc(self,plot_interp=False,ax=None):
+    def plot_lc(self,plot_interp=False,ax=None,title=None,legend=True):
         if not hasattr(self,'mjd'):
             self.cut()
         
@@ -435,8 +442,10 @@ class AtlasPhotometry():
         ax.tick_params(direction='in')    
         ax.set_xlabel('MJD',fontsize=13)
         ax.set_ylabel('SNANA flux',fontsize=13)
-        ax.set_title(self.objname,fontsize=13,x=0.3)
-        ax.legend(frameon=False,bbox_to_anchor=[0.6,1.0],loc='lower left',ncols=2)
+        title = self.objname if title is None else title
+        ax.set_title(title,fontsize=13,x=0.3)
+        if legend:
+            ax.legend(frameon=False,bbox_to_anchor=[0.6,1.0],loc='lower left',ncols=2)
         ax.axhline(0,c='k',ls=':',lw=1,zorder=0)
         return fig,ax
      
@@ -457,24 +466,6 @@ class AtlasPhotometry():
         self.flux_err = self._flux_err[self.cuts]
         if hasattr(self,'_flux_snr'):
             self.flux_snr = self._flux_snr[self.cuts]
-        
-    def subtract_flux_offset(self,flux_offset_c=0.0,flux_offset_o=0.0,
-                                flux_offset_c_err=0.0,flux_offset_o_err=0.0):
-        ''' subtract flux offset from the fluxes.'''
-        if not hasattr(self,'_flux'):
-            self.calc_flux()
-            
-        if flux_offset_c != 0.0:
-            self._flux[self._filters=='c'] -= flux_offset_c
-        if flux_offset_o != 0.0:
-            self._flux[self._filters=='o'] -= flux_offset_o
-        if flux_offset_c_err != 0.0:
-            _err = self._flux_err[self._filters=='c']
-            self._flux_err[self._filters=='c'] = np.sqrt(_err**2 + flux_offset_c_err**2)
-        if flux_offset_o_err != 0.0:
-            _err = self._flux_err[self._filters=='o']
-            self._flux_err[self._filters=='o'] = np.sqrt(_err**2 + flux_offset_o_err**2)
-        self.calc_flux()  # recalculate flux and flux_err
         
     def to_SNANA(self,outfile='',header={'SURVEY':'ATLAS'},
                  columns_to_output=['MJD','FLT', 'FIELD', 'FLUXCAL', 'FLUXCALERR']):
@@ -637,7 +628,8 @@ class AtlasPhotometry():
     def fit_lc(self,plot=True,preset_vals={},
                   bounds=None,
                   raise_error=False,correct_mwdust=True,dust_model='F99',ebv=None,
-                  model_source='salt2',iterate_fit=False,iterative_phase_cut=[-10, 40],**kwargs):
+                  model_source='salt2',iterate_fit=False,iterative_phase_cut=[-10, 40],
+                  ax=None,param_fontsize=12,modelcov=False,**kwargs):
         ''' This requires the SNCosmo package and ATLAS filter info (registered as 'o' and 'c').
         # register filters
         
@@ -674,10 +666,11 @@ class AtlasPhotometry():
             # if bounds is None:
                 # bounds = self.sncosmo_redshift_bounds
             if len(params_to_fit) > 0:
-                if iterate_fit == False:
-                    modelcov = True
-                else:
-                    modelcov = False
+                # update YSM Jun 24 2025: moved this to user kwarg
+                # if iterate_fit == False:
+                #     modelcov = False
+                # else:
+                #     modelcov = False
 
                 guess_amplitude = True
                 guess_t0 = True
@@ -715,15 +708,16 @@ class AtlasPhotometry():
                 # plt.show()
                 param_dict = dict(zip(fitted_model._param_names,fitted_model.parameters))
                 param_text = "\n".join(f"{k}: {v:.3f}" for k, v in param_dict.items())
-                mjd_grid = np.linspace(self.mjd.min(),self.mjd.max(),200)
-                fig,ax = self.plot_lc()
+                if ax is None:
+                    fig,ax = self.plot_lc()
+                mjd_grid = np.linspace(ax.get_xlim()[0],ax.get_xlim()[1],200)
                 for filt in ['orange','cyan']:
                     salt2flux = fitted_model.bandflux(filt[0], mjd_grid, zp=self.zp, zpsys='AB')
                     ax.plot(mjd_grid,salt2flux,c=filt,lw=3,alpha=0.3)
                     if ax.get_ylim()[1] < salt2flux.max():
                         ax.set_ylim(ax.get_ylim()[0],salt2flux.max()*1.1)
-                ax.text(0.7,0.95,param_text,transform=plt.gca().transAxes,
-                        fontsize=12,ha='left',va='top')
+                ax.text(0.65,0.95,param_text,transform=ax.transAxes,
+                        fontsize=param_fontsize,ha='left',va='top')
 
             self.sncosmo_fitted_model = fitted_model
             self._get_sncosmo_residual()
@@ -988,14 +982,14 @@ class AtlasPhotometry():
         return zero_flux,zero_flux_err
     
     def get_zero_levels(self,pkmjd,filters=['o','c'],
-                       phase_before=-40,phase_after=200):
+                       phase_before=-40,phase_after=200,
+                       min_Ndata=5):
         ''' A wrapper to get the weighted-average zero level of the light curve. This is useful for correcting ill-subtraction.
         
         Inputs:
             filters (list): list of filters to use
         '''
         zero_levels = {}
-        zero_level_errors = {}
         for filt in filters:
             zero_flux,zero_flux_err = self.get_zero_flux_obs(
                 pkmjd=pkmjd,
@@ -1003,21 +997,85 @@ class AtlasPhotometry():
                 phase_before=phase_before,
                 phase_after=phase_after
                 )
-            if len(zero_flux) == 0 or np.isfinite(zero_flux).sum() == 0:
-                zero_levels[filt] = 0
-                zero_level_errors[filt] = 0
+            if len(zero_flux) < min_Ndata or np.isfinite(zero_flux).sum() < min_Ndata:
+                zero_levels[filt] = [0,0]
                 continue
             arr_masked = sigma_clip(zero_flux)
             s = ~arr_masked.mask
-            zero_levels[filt] = np.average(zero_flux[s],weights=1/zero_flux_err[s]**2)
-            zero_level_errors[filt] = np.sqrt(1/np.sum(1/zero_flux_err[s]**2))
-        return zero_levels,zero_level_errors
+            
+            zf = np.average(zero_flux[s],weights=1/zero_flux_err[s]**2)
+            zf_err = np.sqrt(1/np.sum(1/zero_flux_err[s]**2))
+            zero_levels[filt] = [zf,zf_err]
+        return zero_levels
+    
+    def subtract_flux_offset(self,zf_t1=None,zf_t2=None,zf_t3=None):
+        ''' subtract flux offset from the fluxes.'''
+        if not hasattr(self,'_flux'):
+            self.calc_flux()
+        if not hasattr(self,'_flux_raw'):
+            self._flux_raw = self._flux.copy()
+            self._flux_err_raw = self._flux_err.copy()
+        else:
+            self._flux = self._flux_raw.copy()
+            self._flux_err = self._flux_err_raw.copy()
         
+        s = self.cuts
+        self.cut(s=s)
+        for zf,mjd_min,mjd_max in zip([zf_t1,zf_t2,zf_t3],
+                                      [0,self.t12,self.t23],
+                                      [self.t12,self.t23,np.inf]):
+            if zf is None:
+                continue
+            for filt,val in zf.items():
+                offset,offset_err = val
+                s = (self._filters==filt) & (self._mjd >= mjd_min) & (self._mjd < mjd_max) 
+                _err = self._flux_err[s]
+                self._flux[s] -= offset
+                self._flux_err[s] = np.sqrt(_err**2 + offset_err**2)
+                
+
+        # if flux_offset_c != 0.0:
+        #     self._flux[self._filters=='c'] -= flux_offset_c
+        # if flux_offset_o != 0.0:
+        #     self._flux[self._filters=='o'] -= flux_offset_o
+        # if flux_offset_c_err != 0.0:
+        #     _err = self._flux_err[self._filters=='c']
+        #     self._flux_err[self._filters=='c'] = np.sqrt(_err**2 + flux_offset_c_err**2)
+        # if flux_offset_o_err != 0.0:
+        #     _err = self._flux_err[self._filters=='o']
+        #     self._flux_err[self._filters=='o'] = np.sqrt(_err**2 + flux_offset_o_err**2)
+        self.calc_flux()  # recalculate flux and flux_err
+        
+      
     def add_error_quadrature(self,percent_flux=5):
         ''' add flux error in quadrature '''
         self._flux_err = np.sqrt(self._flux_err**2 + (percent_flux/100*self._flux)**2)
         self.cut(s=self.cuts)
     
+    def apply_flux_corr(self,corr_data_file,print_message=True):
+        ''' 
+
+        '''
+        if print_message:
+            print('Warning: the input file should contain the zero-point offset to be APPLIED to the data, not REMOVED (e.g., if the data file contains a value of +0.1, this code will REDUCE the flux by a factor of 10^(-0.4*0.1))~0.91).')
+        
+        corr_data = np.load(corr_data_file)
+        
+        cuts = self.cuts.copy()
+        self._zp_offset = np.ones_like(self._flux) * np.nan
+        self._flux_factor = np.ones_like(self._flux) * np.nan
+        for chipid in np.unique(self._chipid):
+            s = self._chipid == chipid
+            if not s.any():
+                continue
+            corrmap = GridLookup(corr_data[int(chipid)])
+            zp_add = corrmap(self.df_phot[s]['x'], self.df_phot[s]['y'])
+            self._flux[s] *= 10**(-0.4*zp_add)
+            self._flux_err[s] *= 10**(-0.4*zp_add)
+            self._zp_offset[s] = zp_add
+            self._flux_factor[s] = 10**(-0.4*zp_add)
+        self.cut(s=cuts)
+        
 class AtlasBinnedPhotometry(AtlasPhotometry):
     def __init__(self,df_combined,objname='',
                  warn_template_changes=True,**kwargs):
@@ -1051,6 +1109,37 @@ class AtlasBinnedPhotometry(AtlasPhotometry):
         self.cut(s=cuts)
         return zero_levels,zero_level_errors
         
+class GridLookup:
+    def __init__(self, grid_data):
+        from scipy.spatial import cKDTree
+        ''' Initialize the GridLookup with a grid file.
+        Inputs:
+            grid_data (np.ndarray): A 3D numpy array with shape (3, N, N) (=[xx,yy,zz]).
+        '''
+        # # grid_data has shape (3, N, N)
+        # grid_data = np.load(grid_file, allow_pickle=True)
+        # if grid_data.ndim != 3 or grid_data.shape[0] != 3:
+        #     raise ValueError("Grid data must have shape (3, N, N).")
+        x, y, z = grid_data
+        self.z = z
+        self.N = z.shape[0]
+
+        # Flatten the grid coordinates for KDTree
+        self.points = np.column_stack((x.ravel(), y.ravel()))
+        self.tree = cKDTree(self.points)
+
+    def __call__(self, x_query, y_query):
+        # Convert scalar inputs to arrays
+        coords = np.column_stack((np.atleast_1d(x_query), np.atleast_1d(y_query)))
+
+        # Query the nearest grid points
+        dists, indices = self.tree.query(coords)
+
+        # Return values at the found indices
+        values = self.z.ravel()[indices]
+
+        # Return scalar if input was scalar
+        return values[0] if np.isscalar(x_query) else values
 
 
 from scipy.stats import norm

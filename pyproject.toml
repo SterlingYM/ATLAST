@@ -13,6 +13,7 @@ dependencies = [
     "pandas>=2.1",
     "astropy>=6.0",
     "tqdm>=4.66",
+    "requests>=2.32",
 ]
 
 [tool.setuptools.packages.find]
