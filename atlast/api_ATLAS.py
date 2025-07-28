@@ -271,13 +271,13 @@ class AtlasPhotometry():
             self._chipid[i] = idx[0]
         self.df_chip = df_chip
                 
-    def _format_df_phot(self):
+    def _format_df_phot(self,round_decimals=2):
         ''' specific to ATLAS dataset.'''
         self.df_phot['MJD'] = self._mjd
         self.df_phot['FLT'] = self._filters
         self.df_phot['FIELD'] = -1
-        self.df_phot['FLUXCAL'] = self._flux
-        self.df_phot['FLUXCALERR'] = self._flux_err
+        self.df_phot['FLUXCAL'] = np.round(self._flux,decimals=2)
+        self.df_phot['FLUXCALERR'] = np.round(self._flux_err,decimals=2)
         
     def cut_data_at_template_change(self,pkmjd,retain_phase=[-20,50]):
         ''' cut the data before/after template change if the template change occurs outside the retain_phase range'''
@@ -1059,21 +1059,23 @@ class AtlasPhotometry():
         if print_message:
             print('Warning: the input file should contain the zero-point offset to be APPLIED to the data, not REMOVED (e.g., if the data file contains a value of +0.1, this code will REDUCE the flux by a factor of 10^(-0.4*0.1))~0.91).')
         
-        corr_data = np.load(corr_data_file)
+        corr_cyan,corr_orange = np.load(corr_data_file)
         
         cuts = self.cuts.copy()
         self._zp_offset = np.ones_like(self._flux) * np.nan
         self._flux_factor = np.ones_like(self._flux) * np.nan
-        for chipid in np.unique(self._chipid):
-            s = self._chipid == chipid
-            if not s.any():
-                continue
-            corrmap = GridLookup(corr_data[int(chipid)])
-            zp_add = corrmap(self.df_phot[s]['x'], self.df_phot[s]['y'])
-            self._flux[s] *= 10**(-0.4*zp_add)
-            self._flux_err[s] *= 10**(-0.4*zp_add)
-            self._zp_offset[s] = zp_add
-            self._flux_factor[s] = 10**(-0.4*zp_add)
+        for filt,corr_data in zip(['c','o'],[corr_cyan,corr_orange]):
+            for chipid in np.unique(self._chipid):
+                s = self._chipid == chipid
+                s &= self._filters == filt
+                if not s.any():
+                    continue
+                corrmap = GridLookup(corr_data[int(chipid)])
+                zp_add = corrmap(self.df_phot[s]['x'], self.df_phot[s]['y'])
+                self._flux[s] *= 10**(-0.4*zp_add)
+                self._flux_err[s] *= 10**(-0.4*zp_add)
+                self._zp_offset[s] = zp_add
+                self._flux_factor[s] = 10**(-0.4*zp_add)
         self.cut(s=cuts)
         
 class AtlasBinnedPhotometry(AtlasPhotometry):
