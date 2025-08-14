@@ -247,11 +247,11 @@ class AtlasPhotometry():
         self.t23 = t23
         self.template_change_12 = False
         self.template_change_23 = False
-        if self.mjd.min() < t12 and self.mjd.max() > t12:
+        if self._mjd.min() < t12 and self._mjd.max() > t12:
             if warn_template_changes:
                 print(f'!!! WARNING: Data MJD range contains Template change 1 -> 2 (MJD={t12}) !!!')
             self.template_change_12 = True
-        if self.mjd.min() < t23 and self.mjd.max() > t23:
+        if self._mjd.min() < t23 and self._mjd.max() > t23:
             if warn_template_changes:
                 print(f'!!! WARNING: Data MJD range contains Template change 2 -> 3 (MJD={t23}) !!!')
             self.template_change_23 = True
@@ -267,17 +267,33 @@ class AtlasPhotometry():
         for i,(sitecam,mjd) in enumerate(zip(self._sitecam,self._mjd)):
             idx = df_chip.index.values[df_chip['sitecam'].eq(sitecam) & df_chip['mjd_min'].astype(float).le(mjd) & df_chip['mjd_max'].astype(float).ge(mjd)]
             if len(idx) == 0:
-                idx = [np.nan]
-            self._chipid[i] = idx[0]
+                self._chipid[i] = np.nan
+            else:
+                self._chipid[i] = idx[0]
         self.df_chip = df_chip
                 
-    def _format_df_phot(self,round_decimals=2):
+    def _format_df_phot(self,round_decimals=2,FLT_format='chipid',filtername_map=None):
         ''' specific to ATLAS dataset.'''
         self.df_phot['MJD'] = self._mjd
         self.df_phot['FLT'] = self._filters
         self.df_phot['FIELD'] = -1
         self.df_phot['FLUXCAL'] = np.round(self._flux,decimals=2)
         self.df_phot['FLUXCALERR'] = np.round(self._flux_err,decimals=2)
+        
+        chipid_noNAN = self._chipid.copy()
+        chipid_noNAN[np.isnan(chipid_noNAN)] = 9999
+        chipid_noNAN = chipid_noNAN.astype(int).astype(str)
+        if FLT_format == 'chipid':
+            self.df_phot['FLT'] = 'ATLAS-'+self._filters+chipid_noNAN
+            
+        if filtername_map is not None:
+            # rewrite the filter names
+            for i in self.df_phot.index:
+                f = self.df_phot.loc[i,'FLT']
+                if f in filtername_map:
+                    self.df_phot.loc[i,'FLT'] = filtername_map[f]
+                else:
+                    pass
         
     def cut_data_at_template_change(self,pkmjd,retain_phase=[-20,50]):
         ''' cut the data before/after template change if the template change occurs outside the retain_phase range'''
@@ -322,6 +338,8 @@ class AtlasPhotometry():
         else:
             s = s.copy()
         s &= np.isfinite(self._flux_err)
+        if hasattr(self,'_chipid'):
+            s &= np.isfinite(self._chipid)
         # s = np.ones(len(self._mjd),dtype=bool)
         if mag_min is not None:
             s &= self._mag >= mag_min
@@ -468,8 +486,9 @@ class AtlasPhotometry():
             self.flux_snr = self._flux_snr[self.cuts]
         
     def to_SNANA(self,outfile='',header={'SURVEY':'ATLAS'},
-                 columns_to_output=['MJD','FLT', 'FIELD', 'FLUXCAL', 'FLUXCALERR']):
-        self._format_df_phot()
+                 columns_to_output=['MJD','FLT', 'FIELD', 'FLUXCAL', 'FLUXCALERR'],
+                 filtername_map=None):
+        self._format_df_phot(filtername_map=filtername_map)
         
             # output file        
         with open(outfile,'w') as g:
