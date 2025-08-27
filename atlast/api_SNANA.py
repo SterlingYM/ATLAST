@@ -50,11 +50,16 @@ def read_SNANA_data(path):
     return df_data
 
 class SNANAPhotometry(AtlasPhotometry):
-    def __init__(self,path=None,objname='',zp=27.5,df_phot=None):
+    def __init__(self,path=None,objname='',zp=27.5,df_phot=None,filtername_map=None):
         if df_phot is not None:
             self.df_phot = df_phot.copy()
         else:
             self.df_phot = read_SNANA_data(path)
+            
+        # make sure MJD is float
+        self.df_phot['MJD'] = self.df_phot['MJD'].astype(float)
+        
+        
         self.metadata = self.df_phot.attrs
         self._mjd = self.df_phot['MJD'].values.astype(float)
         self._flux = self.df_phot['FLUXCAL'].values.astype(float)
@@ -67,7 +72,10 @@ class SNANAPhotometry(AtlasPhotometry):
         else:
             _filters = self.df_phot['FLT']
             _filters = _filters.apply(lambda x: x.rsplit('/')[-1])
+        
         self._filters = _filters.values.astype(str)
+        if filtername_map is not None:
+            self._filters = np.array([filtername_map.get(flt, flt) for flt in self._filters])
         self._chi2dof = np.ones_like(self._mjd) * 0
         self.cut()
 

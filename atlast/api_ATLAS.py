@@ -919,6 +919,7 @@ class AtlasPhotometry():
         self.df_phot.set_index("MJD", inplace=True)
         df_stats.set_index("MJD", inplace=True)
 
+        # return df_stats
         # Perform update on common columns
         self.df_phot.update(df_stats[new_cols[1:]])
         self.df_phot.reset_index(inplace=True)
@@ -972,8 +973,10 @@ class AtlasPhotometry():
             
             self.cut(s=current_cuts)
 
+
+        # warn_template_changes = 
         return AtlasBinnedPhotometry(df_combined,objname=self.objname,
-                                     warn_template_changes=self.warn_template_changes,
+                                     warn_template_changes=getattr(self,'warn_template_changes',True),
                                      zp=self.zp)
     
     def get_zero_flux_obs(self,pkmjd,filt,phase_before=-40,phase_after=200):
