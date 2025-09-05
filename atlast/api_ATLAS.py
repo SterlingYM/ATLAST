@@ -1100,6 +1100,22 @@ class AtlasPhotometry():
                 self._flux_factor[s] = 10**(-0.4*zp_add)
         self.cut(s=cuts)
         
+    def apply_fudge_func(self,fudge_func_file):
+        ''' apply a fudge function to the fluxes. The fudge function should be a 2D numpy array with shape (N, 2), where the first column is the flux and the second column is the fudge factor to be multiplied to the flux_err.
+        
+        Inputs:
+            fudge_func_file (str): path to the numpy file containing the fudge function.
+        '''
+        from scipy.interpolate import interp1d
+
+        flux_axis,fudge_vals = np.load(fudge_func_file)
+        fudge_func = interp1d(flux_axis, fudge_vals, bounds_error=False, 
+                                fill_value=(fudge_vals[np.argmin(flux_axis)],
+                                            fudge_vals[np.argmax(flux_axis)]))
+        self._fudge_factor = fudge_func(self._flux)
+        self._flux_err *= self._fudge_factor
+        self.cut(s=self.cuts)
+        
 class AtlasBinnedPhotometry(AtlasPhotometry):
     def __init__(self,df_combined,objname='',
                  warn_template_changes=True,**kwargs):
