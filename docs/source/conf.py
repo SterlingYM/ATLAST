@@ -36,6 +36,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',  # For Google/NumPy style docstrings
     'sphinx.ext.viewcode',
+    'sphinx.ext.intersphinx',
     'nbsphinx',
 ]
 
@@ -45,9 +46,37 @@ templates_path = ['_templates']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+# toc.rst is pulled into index.rst with `.. include::`, so it is not a page itself.
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '**.ipynb_checkpoints', 'toc.rst']
 napoleon_custom_sections = [('Returns', 'params_style')]
-language = 'python'
+language = 'en'
+
+# -- autodoc -----------------------------------------------------------------
+autodoc_member_order = 'bysource'
+autodoc_default_options = {
+    'members': True,
+    'undoc-members': True,
+    'show-inheritance': True,
+}
+# Optional dependencies that are imported lazily inside functions. Mocking them
+# keeps the API pages buildable in an environment where they are not installed.
+autodoc_mock_imports = ['sncosmo', 'csaps', 'sklearn']
+
+# -- nbsphinx ----------------------------------------------------------------
+# The tutorial notebooks talk to the ATLAS server and read local photometry
+# files, so they are never executed at build time -- the stored outputs are
+# rendered as-is.
+nbsphinx_execute = 'never'
+nbsphinx_allow_errors = True
+
+# -- intersphinx -------------------------------------------------------------
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'numpy': ('https://numpy.org/doc/stable/', None),
+    'pandas': ('https://pandas.pydata.org/docs/', None),
+    'astropy': ('https://docs.astropy.org/en/stable/', None),
+    'matplotlib': ('https://matplotlib.org/stable/', None),
+}
 
 # -- Options for HTML output -------------------------------------------------
 
