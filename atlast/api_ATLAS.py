@@ -1206,33 +1206,69 @@ def chauvenet_sigma_level(N):
     
     return sigma_level
 
-def sigma_clip_in_pull(flux,flux_err,sigma_scale=3):
+def sigma_clip_in_pull(flux,flux_err,sigma_scale=3,maxiter=10):
     """
-    sigma_clip_in_pull: sigma-clip the flux in pull space in a iterative process
-    """
-    indices = np.arange(len(flux))
-    mask = np.isfinite(flux) & np.isfinite(flux_err)
-    if mask.sum() < 1:
-        return np.nan,np.nan,np.nan
-    mean = np.average(flux[mask],weights=1/flux_err[mask]**2)
-    pull = (flux-mean)/flux_err
+    sigma_clip_in_pull: sigma-clip the flux in pull space in an iterative process.
 
-    for _ in range(mask.sum()-2):
-        # try removing data with the largest pull
-        s = mask.copy()
-        s[np.where(pull == pull[mask].max())[0][0]] = False
-        mean = np.average(flux[s],weights=1/flux_err[s]**2)
-        pull = (flux - mean) / flux_err
-        
-        # apply sigma-clip with new pull and std
-        # see if it changes the clip result
-        new_mask = np.abs(pull) < max(1,np.std(pull[s]))*sigma_scale
-        if new_mask.sum() == mask.sum():
-            break
+    The reference value is the inverse-variance weighted mean of the currently-kept
+    points, and each point is judged by its pull, (flux - mean) / flux_err. Because a
+    single bad exposure with a small error carries a large weight, the iteration is
+    seeded with the median flux rather than the weighted mean, and the clip width uses
+    the normalized MAD of the pulls rather than their standard deviation -- both of
+    which are insensitive to one extreme point. The width is floored at 1 so that a
+    group whose scatter is consistent with its errors is clipped at sigma_scale.
+
+    Inputs:
+        flux (np.ndarray): fluxes of the group
+        flux_err (np.ndarray): flux uncertainties
+        sigma_scale (float): clip level, in units of the (robust) pull scatter
+        maxiter (int): maximum number of clipping iterations
+
+    Returns:
+        pull_all (np.ndarray): pull of every point w.r.t. the final weighted mean
+        mean (float): sigma-clipped inverse-variance weighted mean flux
+        mask (np.ndarray): boolean, True for points kept in the mean
+    """
+    finite = np.isfinite(flux) & np.isfinite(flux_err) & (flux_err > 0)
+    if finite.sum() < 1:
+        return np.full(np.shape(flux), np.nan), np.nan, finite
+
+    def _wmean(m):
+        return np.average(flux[m], weights=1/flux_err[m]**2)
+
+    # too few points to clip meaningfully -- keep everything
+    if finite.sum() < 3:
+        mean = _wmean(finite)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return (flux - mean)/flux_err, mean, finite
+
+    # seed with the median: unlike the weighted mean it cannot be dragged by a
+    # single low-error outlier
+    center = np.median(flux[finite])
+    mask = finite.copy()
+
+    for _ in range(maxiter):
+        with np.errstate(divide='ignore', invalid='ignore'):
+            pull = (flux - center) / flux_err
+        resid = np.abs(pull[mask] - np.median(pull[mask]))
+        scale = max(1.0, 1.4826 * np.median(resid))   # normalized MAD, floored at 1
+
+        new_mask = finite & (np.abs(pull) <= sigma_scale * scale)
+        if new_mask.sum() < 1:
+            # everything clipped: fall back to the single closest point
+            best = np.argmin(np.where(finite, np.abs(pull), np.inf))
+            new_mask = np.zeros_like(finite)
+            new_mask[best] = True
+
+        converged = np.array_equal(new_mask, mask)
         mask = new_mask
+        center = _wmean(mask)
+        if converged:
+            break
 
-    mean = np.average(flux[mask],weights=1/flux_err[mask]**2)
-    pull_all = (flux - mean)/flux_err
-    
+    mean = center
+    with np.errstate(divide='ignore', invalid='ignore'):
+        pull_all = (flux - mean)/flux_err
+
     return pull_all, mean, mask
 
