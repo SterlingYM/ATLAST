@@ -169,3 +169,14 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Local scratch tests and test data
+tests/
+
+# TITAN calibration products -- PRIVATE, never commit.
+# Zero-point correction maps and error fudge functions are reserved for the TITAN
+# team until the science analyses are published. See docs/source/rst_files/corrections.rst
+*.npy
+*zp_correction*
+*fudge_function*
+*correction_map*
